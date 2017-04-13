@@ -1,0 +1,187 @@
+﻿@{
+    ViewBag.Title = "Drawing";
+}
+
+
+<br />
+<div id="content">
+    <canvas id="drawingCanvas" width="875" height="500">
+        Your browser does not support the canvas element.
+    </canvas>
+
+    <div id="chatSection">
+        <div id="chatWindow"></div>
+        <label for="message">Message:</label>
+        <input type="text" name="message" id="message" maxlength="100" />
+    </div>
+
+    <div id="drawingOptions">
+        <button type="button" class="btn btn-circle btn-lg btn-black optionSelect" id="blackColor" onclick="changeColor(this.id)"></button>
+        <button type="button" class="btn btn-circle btn-lg btn-white optionSelect" id="whiteColor" onclick="changeColor(this.id)"></button>
+        <button type="button" class="btn btn-circle btn-lg btn-red optionSelect" id="redColor" onclick="changeColor(this.id)"></button>
+        <button type="button" class="btn btn-circle btn-lg btn-blue optionSelect" id="blueColor" onclick="changeColor(this.id)"></button>
+        <button type="button" class="btn btn-circle btn-lg btn-green optionSelect" id="greenColor" onclick="changeColor(this.id)"></button>
+        <button type="button" class="btn btn-circle btn-lg btn-cyan optionSelect" id="cyanColor" onclick="changeColor(this.id)"></button>
+        <button type="button" class="btn btn-circle btn-lg btn-magenta optionSelect" id="magentaColor" onclick="changeColor(this.id)"></button>
+        <button type="button" class="btn btn-circle btn-lg btn-yellow optionSelect" id="yellowColor" onclick="changeColor(this.id)"></button>
+        <button type="button" class="btn btn-circle btn-lg dot-small optionSelect" id="smallPen" value="3" onclick="changePen(this.id)"><span class="glyphicon glyphicon-pencil pull-left small-pencil"></span></button>
+        <button type="button" class="btn btn-circle btn-lg dot-medium optionSelect" id="mediumPen" value="5" onclick="changePen(this.id)"><span class="glyphicon glyphicon-pencil pull-left medium-pencil"></span></button>
+        <button type="button" class="btn btn-circle btn-lg dot-large optionSelect" id="LargePen" value="8" onclick="changePen(this.id)"><span class="glyphicon glyphicon-pencil pull-left large-pencil"></span></button>
+
+
+        <input type="submit" value="Clear Canvas" id="clear_button" class="btn btn-primary" />
+    </div>
+
+
+</div>
+
+
+<script src="~/Scripts/jquery-3.1.1.min.js"></script>
+<script src="~/Scripts/jquery.signalR-2.2.1.js"></script>
+<script type="text/javascript" src="/signalr/hubs"></script>
+<script>
+    var lineColor;
+    var lineWidth;
+    $(function () {
+
+        var docLoaded = false, hubConnected = false;
+
+        //Canvas logic
+        var canvas = document.getElementById('drawingCanvas');
+        var ctx = canvas.getContext("2d");
+        lineColor = "#000000";
+        lineWidth = 5;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 1;
+        var oX, oY;
+        var cC = 0;
+        var name = "Anon";
+
+        var person = prompt("Please enter a username", "Anon");
+        if (person != null) {
+            name = person;
+        }
+
+        //ChatHub
+        var chatHub = $.connection.chatHub;
+
+        chatHub.client.publishMessage = function (msg, senderName) {
+            var chatWin = $("#chatWindow");
+            chatWin.html(chatWin.html() + "<b>" + senderName + "</b>: " + msg + "<br/>");
+        };
+
+
+        //DrawingHub 
+        $.connection.drawingHub.qs = { "g": "GlobalCanvas" };
+        var drawingHub = $.connection.drawingHub;
+
+
+        drawingHub.client.drawMove = function (p, color) {
+            DrawMove(p, color);
+        };
+
+        drawingHub.client.clearAllCanvas = function () {
+            ClearCanvas();
+        };
+
+
+
+        $.connection.hub.start().done(function () {
+            hubConnected = true;
+            //drawingHub.server.addToGroup(window.location.pathname);
+            canvasEvents();//lol?
+        });
+
+
+        function DrawMove(p, color) {
+            ctx.beginPath();
+            ctx.moveTo(p[0], p[1]);
+            ctx.lineWidth = p[4];
+            ctx.strokeStyle = color;
+            ctx.lineTo(p[2], p[3]);
+            ctx.stroke();
+        }
+
+        function ClearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.beginPath();
+            ctx.rect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+        }
+
+        
+
+        function canvasEvents() {
+            if (docLoaded && hubConnected) {
+                //Mouse only control(c/n draw if mousedown is outside canvas nor moving mouse over unclicked)
+                var clicked = 0;
+
+                function start(e) {
+                    //Specifies only left mouse click
+                    if (e.which == 1) {
+                        clicked = 1;
+                        oX = e.offsetX;
+                        oY = e.offsetY;
+                        DrawMove([oX, oY, oX - 1, oY - 1, lineWidth, cC], lineColor);
+                        drawingHub.server.drawMove([oX, oY, oX - 1, oY - 1, lineWidth, cC], lineColor);
+                    }
+
+                };
+
+                function move(e) {
+                    if (clicked) {
+                        x = e.offsetX;
+                        y = e.offsetY;
+                        DrawMove([oX, oY, x, y, lineWidth, cC], lineColor);
+                        drawingHub.server.drawMove([oX, oY, x, y, lineWidth, cC], lineColor);
+                        oX = x;
+                        oY = y;
+                    }
+                };
+
+                function stop(e) {
+                    clicked = 0;
+                };
+
+                $(canvas).on("mousedown", start);
+                $(canvas).on("mousemove", move);
+                $(canvas).on("mouseup", stop);
+
+            }
+        }
+
+        docLoaded = true;
+        canvasEvents();
+        $(clear_button).on("click", function () {
+            ClearCanvas();
+            drawingHub.server.clearAllCanvas();
+        });
+
+
+        //Chat stuff
+        $(document).keypress(function (e) {
+            if (e.which == 13) {
+                //When the 'Enter' key is pressed, send message to hub
+                chatHub.server.sendMessage($("#message").val(), name);
+                $("#message").val("");
+            }
+        });
+    });
+
+    function changeColor(buttonId) {
+        var newColor = $('#' + buttonId).css("backgroundColor");
+        lineColor = newColor;
+    }
+
+    function changePen(buttonId) {
+        var newSize = $('#' + buttonId).val();
+        lineWidth = newSize;
+    }
+
+
+    
+
+</script>
